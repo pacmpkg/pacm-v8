@@ -1,21 +1,45 @@
-MIT License
+Infinite Clause License (ICL)
+Version 1.0 – 2025
 
 Copyright (c) 2025 PACM
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Grant of Rights
+You are granted a perpetual, worldwide, irrevocable,
+royalty-free license to use, copy, modify, publish,
+distribute, sublicense, and/or sell the Software, in
+source or compiled form, subject to the conditions
+below.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Conditions of Use
+- Attribution: This license and copyright notice must
+  appear with all substantial portions of the Software.
+- Modification Transparency: Any distributed modified
+  version must clearly document the changes made in a
+  dedicated file or section.
+- Source Clarity: Modifications must be clearly marked
+  within the source code or accompanying documentation.
+- No False Endorsement: Names of authors or contributors
+  may not be used to imply endorsement without prior
+  permission.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Warranty Disclaimer
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+AND NON-INFRINGEMENT.
+
+4. Limitation of Liability
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM OR IN CONNECTION WITH THE SOFTWARE.
+
+5. Infinite Clause
+The rights granted herein are perpetual and irrevocable.
+No additional terms or restrictions may be applied to
+the Software by downstream licensees. Only the original
+authors may publish new versions of this license.
+
+---
+This is the Infinite Clause License (ICL).
+It exists to protect freedom, clarity, and longevity.
