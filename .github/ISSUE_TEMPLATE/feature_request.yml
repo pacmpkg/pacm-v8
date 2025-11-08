@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose an idea for pacm-v8
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea! Help us understand the value and scope by completing the questions below.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence that describes the feature or improvement.
+      placeholder: Support embedding multiple isolates per thread
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why do you need this feature? What problem does it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you imagine the feature working. Feel free to include pseudo code or API sketches.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried any workarounds or alternative approaches?
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any references, screenshots, or related issues.
+    validations:
+      required: false

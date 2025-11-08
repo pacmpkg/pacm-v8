@@ -1,0 +1,9 @@
+.cipd/
+__pycache__/
+prebuilt/
+dist/
+target/
+artifacts/
+.gcs_entries
+.gclient_entries
+.gclient_previous_sync_commits

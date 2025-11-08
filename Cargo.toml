@@ -1,0 +1,27 @@
+[package]
+name = "pacm-v8"
+version = "14.4.78"
+edition = "2024"
+build = "build.rs"
+description = "Rust bindings for the V8 JavaScript engine for the pacm toolkit"
+documentation = "https://docs.rs/pacm-v8"
+repository = "https://github.com/pacmpkg/pacm-v8"
+homepage = "https://github.com/pacmpkg/pacm-v8"
+license-file = "LICENSE"
+rust-version = "1.85"
+keywords = ["v8", "javascript", "runtime", "bindings", "pacm"]
+categories = ["api-bindings", "compilers", "wasm"]
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.2.45"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"] }
+tar = "0.4"
+flate2 = "1.0"
+serde_json = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

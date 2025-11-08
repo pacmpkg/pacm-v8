@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerabilities
+    url: https://github.com/pacmpkg/pacm-v8/security/policy
+    about: Please follow our security policy for reporting vulnerabilities.
+  - name: Documentation
+    url: https://docs.rs/pacm-v8
+    about: Browse the crate documentation for API details.

@@ -1,0 +1,7 @@
+[package]
+name = "pacm-v8-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pacm-v8 = { path = "../" }

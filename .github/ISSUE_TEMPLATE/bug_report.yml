@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a problem with pacm-v8
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out a bug report! Please answer every question so we can reproduce and fix the issue quickly.
+  - type: input
+    id: version
+    attributes:
+      label: Affected version(s)
+      description: What version of pacm-v8 were you using?
+      placeholder: 14.4.78
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Host platform
+      description: Which operating system and toolchain are you using?
+      options:
+        - Windows (MSVC)
+        - Windows (GNU)
+        - Linux (glibc)
+        - Linux (musl)
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Other (add details below)
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the issue and how it manifests.
+      placeholder: When I run ... I expected ... but ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide minimal steps or sample code to reproduce the issue.
+      placeholder: |
+        1. cargo run --example ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, stack traces, or console output
+      description: Paste relevant output or attach files.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Any other information that may help us resolve the issue.
+    validations:
+      required: false
