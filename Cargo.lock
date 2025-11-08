@@ -697,6 +697,7 @@ dependencies = [
 name = "pacm-v8"
 version = "14.4.78"
 dependencies = [
+ "bytes",
  "cc",
  "flate2",
  "libc",
