@@ -110,8 +110,8 @@ jobs:
       - name: Update crate version
         env:
           CRATE_VERSION: ${{ needs.detect.outputs.version }}
+        shell: python
         run: |
-          python3 - <<'PY'
           import os
           import pathlib
           import re
@@ -127,7 +127,6 @@ jobs:
           if replaced == 0:
               raise SystemExit("Failed to update crate version in Cargo.toml")
           cargo_toml.write_text(new_content, encoding="utf-8")
-          PY
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -141,7 +140,6 @@ jobs:
             clang \
             lld \
             ninja-build \
-            python3-distutils \
             pkg-config \
             bison \
             gperf \
