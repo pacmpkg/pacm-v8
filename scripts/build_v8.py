@@ -106,6 +106,8 @@ def build_v8(target="x64.release", revision: str | None = None):
     env["PATH"] = str(DEPOT_TOOLS) + os.pathsep + env.get("PATH", "")
     # Avoid authenticated toolchain downloads; rely on locally installed VS toolchain instead.
     env.setdefault("DEPOT_TOOLS_WIN_TOOLCHAIN", "0")
+    vpython = shutil.which("vpython3", path=env.get("PATH")) or shutil.which("vpython", path=env.get("PATH"))
+    python_exe = vpython or sys.executable
     # sync (in case)
     sync_cmd = ["gclient", "sync"]
     if revision:
@@ -127,6 +129,9 @@ def build_v8(target="x64.release", revision: str | None = None):
     ensure_arg("v8_enable_temporal_support", "false")
     ensure_arg("use_custom_libcxx", "false")
     ensure_arg("treat_warnings_as_errors", "false")
+    ensure_arg("use_remoteexec", "false")
+    ensure_arg("use_siso", "false")
+    ensure_arg("use_goma", "false")
     ensure_arg(
         "extra_cflags_cc",
         "[\"-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING\"]"
@@ -134,7 +139,7 @@ def build_v8(target="x64.release", revision: str | None = None):
 
     env["GN_ARGS"] = " ".join(extra_args_list)
 
-    v8gen_cmd = [sys.executable, "tools/dev/v8gen.py", target]
+    v8gen_cmd = [python_exe, "tools/dev/v8gen.py", "-vv", target]
     if extra_args_list:
         v8gen_cmd.extend(["--", *extra_args_list])
     run(v8gen_cmd, cwd=V8_DIR, env=env)
