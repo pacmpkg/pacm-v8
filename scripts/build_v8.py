@@ -100,6 +100,29 @@ def bundle_libcxx(outdir: Path, env: dict) -> Path | None:
 
     return target if target.exists() else None
 
+
+def ensure_sysroot(target: str, python_exe: str, env: dict) -> None:
+    if platform.system() != "Linux":
+        return
+
+    lowered = target.lower()
+    arch = None
+    if "arm64" in lowered:
+        arch = "arm64"
+    elif "arm." in lowered:
+        arch = "arm"
+    elif "ia32" in lowered or ("x86" in lowered and "64" not in lowered):
+        arch = "i386"
+
+    if arch is None:
+        return
+
+    sysroot_script = V8_DIR / "build" / "linux" / "sysroot_scripts" / "install-sysroot.py"
+    if not sysroot_script.exists():
+        return
+
+    run([python_exe, str(sysroot_script), f"--arch={arch}"], cwd=V8_DIR, env=env)
+
 def build_v8(target="x64.release", revision: str | None = None):
     env = os.environ.copy()
     # Make depot_tools available in PATH
@@ -126,43 +149,13 @@ def build_v8(target="x64.release", revision: str | None = None):
     ensure_arg("v8_monolithic", "true")
     ensure_arg("is_component_build", "false")
     ensure_arg("v8_use_external_startup_data", "false")
-    ensure_arg("v8_enable_temporal_support", "false")
-    ensure_arg("use_custom_libcxx", "false")
     ensure_arg("treat_warnings_as_errors", "false")
-    ensure_arg("use_remoteexec", "false")
-    ensure_arg("use_siso", "false")
-    ensure_arg("use_goma", "false")
-    ensure_arg("use_clang_modules", "false")
-    ensure_arg(
-        "extra_cflags_cc",
-        "[\"-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING\"]"
-    )
-
-    cpu_prefix = target.split('.', 1)[0].lower()
-    cpu_map = {
-        "x64": "x64",
-        "x86": "x86",
-        "ia32": "x86",
-        "arm64": "arm64",
-    }
-    cpu_value = cpu_map.get(cpu_prefix)
-    if cpu_value:
-        ensure_arg("target_cpu", f"\"{cpu_value}\"")
-        ensure_arg("v8_target_cpu", f"\"{cpu_value}\"")
-
-    if platform.system() == "Darwin":
-        ensure_arg("use_system_xcode", "true")
-        ensure_arg("mac_sdk_min", "\"14.0\"")
-        ensure_arg("mac_deployment_target", "\"14.0\"")
-        ensure_arg("mac_min_system_version", "\"14.0\"")
 
     env["GN_ARGS"] = " ".join(extra_args_list)
 
-    builder = target
-    if cpu_value == "x86":
-        builder = "x64.release"
+    ensure_sysroot(target, python_exe, env)
 
-    v8gen_cmd = [python_exe, "tools/dev/v8gen.py", "gen", "-vv", "-b", builder, target]
+    v8gen_cmd = [python_exe, "tools/dev/v8gen.py", "-vv", target]
     if extra_args_list:
         v8gen_cmd.append("--")
         v8gen_cmd.extend(extra_args_list)
