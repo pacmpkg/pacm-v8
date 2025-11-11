@@ -46,7 +46,7 @@ jobs:
               core.setOutput('should_build', 'false');
               return;
             }
-            const tag = `v${version}`;
+            const tag = `v8-${version}`;
             try {
               await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
@@ -79,12 +79,12 @@ jobs:
             gn_target: arm64.release
             target_triple: aarch64-unknown-linux-gnu
           - os: ubuntu-latest
-            gn_target: x86.release
+            gn_target: ia32.release
             target_triple: i686-unknown-linux-gnu
-          - os: macos-14
+          - os: macos-latest
             gn_target: arm64.release
             target_triple: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-15
             gn_target: x64.release
             target_triple: x86_64-apple-darwin
           - os: windows-latest
@@ -229,8 +229,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.detect.outputs.version }}
-          name: v${{ needs.detect.outputs.version }}
+          tag_name: v8-${{ needs.detect.outputs.version }}
+          name: V8 ${{ needs.detect.outputs.version }}
           files: artifacts/**/v8-*.tar.gz
           make_latest: true
           generate_release_notes: true
