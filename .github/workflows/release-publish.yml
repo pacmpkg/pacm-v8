@@ -1,0 +1,79 @@
+name: Release Publish
+
+on:
+  release:
+    types:
+      - created
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out release target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.target_commitish }}
+          fetch-depth: 0
+
+      - name: Extract crate version
+        id: crate_version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#v8-}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Update Cargo.toml version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          version = "${{ steps.crate_version.outputs.version }}"
+          path = Path("Cargo.toml")
+          lines = path.read_text().splitlines()
+          in_package = False
+          for idx, line in enumerate(lines):
+              stripped = line.strip()
+              if stripped.startswith("["):
+                  in_package = stripped == "[package]"
+              elif in_package and stripped.startswith("version"):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  lines[idx] = f"{indent}version = \"{version}\""
+                  break
+          else:
+              raise SystemExit("Version field not found in [package]")
+          path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Commit version bump
+        id: commit_version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "commit_made=false" >> "$GITHUB_OUTPUT"
+          else
+            git add Cargo.toml Cargo.lock
+            git commit -m "chore: update crate version to ${{ steps.crate_version.outputs.version }}"
+            echo "commit_made=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push changes
+        if: steps.commit_version.outputs.commit_made == 'true'
+        run: |
+          git push origin HEAD:${{ github.event.release.target_commitish }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build crate
+        run: cargo build --release
+
+      - name: Publish to crates.io
+        env:
+          CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+        run: cargo publish --token "$CRATES_IO_API_TOKEN"
