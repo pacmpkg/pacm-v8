@@ -46,7 +46,7 @@ jobs:
               core.setOutput('should_build', 'false');
               return;
             }
-            const tag = `v8-${version}`;
+            const tag = `v${version}`;
             try {
               await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
@@ -123,7 +123,11 @@ jobs:
           cargo_toml = pathlib.Path("Cargo.toml")
           content = cargo_toml.read_text(encoding="utf-8")
           pattern = re.compile(r'(?m)^(version\s*=\s*")([^"]+)(")')
-          new_content, replaced = pattern.subn(rf'\1{version}\3', content, count=1)
+
+          def replacer(match):
+              return f"{match.group(1)}{version}{match.group(3)}"
+
+          new_content, replaced = pattern.subn(replacer, content, count=1)
           if replaced == 0:
               raise SystemExit("Failed to update crate version in Cargo.toml")
           cargo_toml.write_text(new_content, encoding="utf-8")
@@ -225,8 +229,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v8-${{ needs.detect.outputs.version }}
-          name: V8 ${{ needs.detect.outputs.version }}
+          tag_name: v${{ needs.detect.outputs.version }}
+          name: v${{ needs.detect.outputs.version }}
           files: artifacts/**/v8-*.tar.gz
           make_latest: true
           generate_release_notes: true
