@@ -150,6 +150,7 @@ def build_v8(target="x64.release", revision: str | None = None):
     ensure_arg("is_component_build", "false")
     ensure_arg("v8_use_external_startup_data", "false")
     ensure_arg("treat_warnings_as_errors", "false")
+    ensure_arg("use_clang_modules", "false")
 
     env["GN_ARGS"] = " ".join(extra_args_list)
 
