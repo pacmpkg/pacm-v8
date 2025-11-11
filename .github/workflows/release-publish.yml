@@ -28,13 +28,16 @@ jobs:
           version="${tag#v8-}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Update Cargo.toml version
+      - name: Update crate version references
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           version = "${{ steps.crate_version.outputs.version }}"
-          path = Path("Cargo.toml")
-          lines = path.read_text().splitlines()
+
+          cargo_path = Path("Cargo.toml")
+          lines = cargo_path.read_text().splitlines()
           in_package = False
           for idx, line in enumerate(lines):
               stripped = line.strip()
@@ -46,7 +49,19 @@ jobs:
                   break
           else:
               raise SystemExit("Version field not found in [package]")
-          path.write_text("\n".join(lines) + "\n")
+          cargo_path.write_text("\n".join(lines) + "\n")
+
+          readme_path = Path("README.md")
+          readme_text = readme_path.read_text()
+          updated_text, count = re.subn(
+              r"(pacm-v8\s*=\s*\")([^\"]+)(\")",
+              lambda match: f"{match.group(1)}{version}{match.group(3)}",
+              readme_text,
+              count=1,
+          )
+          if count == 0:
+              raise SystemExit("Version string not found in README.md manual setup section")
+          readme_path.write_text(updated_text)
           PY
 
       - name: Commit version bump
@@ -57,7 +72,7 @@ jobs:
           if git diff --quiet; then
             echo "commit_made=false" >> "$GITHUB_OUTPUT"
           else
-            git add Cargo.toml Cargo.lock
+            git add Cargo.toml Cargo.lock README.md
             git commit -m "chore: update crate version to ${{ steps.crate_version.outputs.version }}"
             echo "commit_made=true" >> "$GITHUB_OUTPUT"
           fi
