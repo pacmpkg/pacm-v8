@@ -132,16 +132,40 @@ def build_v8(target="x64.release", revision: str | None = None):
     ensure_arg("use_remoteexec", "false")
     ensure_arg("use_siso", "false")
     ensure_arg("use_goma", "false")
+    ensure_arg("use_clang_modules", "false")
     ensure_arg(
         "extra_cflags_cc",
         "[\"-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING\"]"
     )
 
+    cpu_prefix = target.split('.', 1)[0].lower()
+    cpu_map = {
+        "x64": "x64",
+        "x86": "x86",
+        "ia32": "x86",
+        "arm64": "arm64",
+    }
+    cpu_value = cpu_map.get(cpu_prefix)
+    if cpu_value:
+        ensure_arg("target_cpu", f"\"{cpu_value}\"")
+        ensure_arg("v8_target_cpu", f"\"{cpu_value}\"")
+
+    if platform.system() == "Darwin":
+        ensure_arg("use_system_xcode", "true")
+        ensure_arg("mac_sdk_min", "\"14.0\"")
+        ensure_arg("mac_deployment_target", "\"14.0\"")
+        ensure_arg("mac_min_system_version", "\"14.0\"")
+
     env["GN_ARGS"] = " ".join(extra_args_list)
 
-    v8gen_cmd = [python_exe, "tools/dev/v8gen.py", "-vv", target]
+    builder = target
+    if cpu_value == "x86":
+        builder = "x64.release"
+
+    v8gen_cmd = [python_exe, "tools/dev/v8gen.py", "gen", "-vv", "-b", builder, target]
     if extra_args_list:
-        v8gen_cmd.extend(["--", *extra_args_list])
+        v8gen_cmd.append("--")
+        v8gen_cmd.extend(extra_args_list)
     run(v8gen_cmd, cwd=V8_DIR, env=env)
     # ninja build
     outdir = V8_DIR / f"out.gn/{target}"
