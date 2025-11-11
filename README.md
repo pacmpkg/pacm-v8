@@ -8,7 +8,7 @@ High-level Rust bindings for the V8 JavaScript engine tailored for the pacm tool
 - Prebuilt Windows V8 artifacts ready to use out of the box
 - Utilities for executing scripts, evaluating expressions, and binding host functions
 - Support for injecting numbers, strings, and Rust callbacks into a V8 context
-- Example crate demonstrating integration in a pacm project
+- Example crate demonstrating integration in a project
 
 ## Getting Started
 
