@@ -1,12 +1,12 @@
-use flate2::read::GzDecoder;
 use bytes::Bytes;
-use std::io::Error;
-use std::time::SystemTime;
+use flate2::read::GzDecoder;
 use reqwest::blocking::{RequestBuilder, Response};
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, File, Metadata};
-use std::process::{ExitStatus, Command};
+use std::io::{BufReader, Error, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
+use std::time::SystemTime;
 use std::{collections::HashMap, env, fs};
 
 use reqwest::blocking::Client;
@@ -17,9 +17,21 @@ fn extract_tarball(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Err
     }
     fs::create_dir_all(dst)?;
     let file: File = std::fs::File::open(src)?;
-    let ar: GzDecoder<File> = flate2::read::GzDecoder::new(file);
-    let mut archive = tar::Archive::new(ar);
-    archive.unpack(dst)?;
+    let mut reader: BufReader<File> = BufReader::new(file);
+    let mut magic: [u8; 6] = [0; 6];
+    let read: usize = reader.read(&mut magic)?;
+    reader.seek(SeekFrom::Start(0))?;
+
+    let is_gzip: bool = read >= 2 && magic[0] == 0x1F && magic[1] == 0x8B;
+
+    if is_gzip {
+        let decoder: GzDecoder<BufReader<File>> = GzDecoder::new(reader);
+        let mut archive = tar::Archive::new(decoder);
+        archive.unpack(dst)?;
+    } else {
+        let mut archive = tar::Archive::new(reader);
+        archive.unpack(dst)?;
+    }
     Ok(())
 }
 
@@ -32,22 +44,21 @@ fn download_and_extract(url: &str, dst: &Path) -> Result<(), Box<dyn std::error:
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp: PathBuf = dst.with_extension("tar.gz");
+    let tmp: PathBuf = dst.with_extension("download");
     std::fs::write(&tmp, &bytes)?;
     extract_tarball(&tmp, dst)?;
     let _ = std::fs::remove_file(&tmp);
     Ok(())
 }
 
-fn resolve_latest_release_tag(repo: &str) -> Option<String> {
+fn github_api_json(repo: &str, endpoint: &str) -> Option<serde_json::Value> {
     let client: Client = Client::builder()
         .user_agent("pacm-v8-build/1.0")
         .build()
         .ok()?;
 
-    let mut request: RequestBuilder = client.get(format!(
-        "https://api.github.com/repos/{repo}/releases/latest"
-    ));
+    let url: String = format!("https://api.github.com/repos/{repo}/{endpoint}");
+    let mut request: RequestBuilder = client.get(url);
 
     if let Ok(token) = env::var("GITHUB_TOKEN") {
         if !token.is_empty() {
@@ -60,11 +71,80 @@ fn resolve_latest_release_tag(repo: &str) -> Option<String> {
         return None;
     }
 
-    let payload: serde_json::Value = response.json().ok()?;
-    payload
-        .get("tag_name")
-        .and_then(|name| name.as_str())
-        .map(|name: &str| name.to_string())
+    response.json().ok()
+}
+
+fn resolve_latest_release_tag(repo: &str) -> Option<String> {
+    github_api_json(repo, "releases/latest").and_then(|payload: serde_json::Value| {
+        payload
+            .get("tag_name")
+            .and_then(|name| name.as_str())
+            .map(|name: &str| name.to_string())
+    })
+}
+
+fn fetch_release_metadata(repo: &str, tag: Option<&str>) -> Option<serde_json::Value> {
+    match tag {
+        Some(tag_name) => github_api_json(repo, &format!("releases/tags/{tag_name}")),
+        None => github_api_json(repo, "releases/latest"),
+    }
+}
+
+fn find_release_asset(
+    release: &serde_json::Value,
+    target_triple: &str,
+) -> Option<(String, String)> {
+    let assets = release.get("assets")?.as_array()?;
+    let base: String = format!("v8-{target_triple}");
+    let candidates: [String; 7] = [
+        format!("{base}.tar.gz"),
+        format!("{base}.tgz"),
+        format!("{base}.tar.zst"),
+        format!("{base}.tar.xz"),
+        format!("{base}.zip"),
+        format!("{base}.tar"),
+        base.clone(),
+    ];
+
+    for candidate in &candidates {
+        if let Some(asset) = assets.iter().find(|asset| {
+            asset
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|name| name.eq_ignore_ascii_case(candidate))
+                .unwrap_or(false)
+        }) {
+            let url = asset
+                .get("browser_download_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())?;
+            let name = asset
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())?;
+            return Some((url, name));
+        }
+    }
+
+    if let Some(asset) = assets.iter().find(|asset| {
+        asset
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|name| name.starts_with(&base))
+            .unwrap_or(false)
+    }) {
+        let url = asset
+            .get("browser_download_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())?;
+        let name = asset
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())?;
+        return Some((url, name));
+    }
+
+    None
 }
 
 fn library_spec(path: &Path) -> Option<(String, &'static str)> {
@@ -445,15 +525,58 @@ fn main() {
 
     // Asset name convention
     let filename: String = format!("v8-{target_triple}.tar.gz");
-    if !use_latest_endpoint {
-        println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={effective_tag}");
-    }
-
-    let url: String = if use_latest_endpoint {
+    let fallback_url: String = if use_latest_endpoint {
         format!("https://github.com/{repo}/releases/latest/download/{filename}")
     } else {
         format!("https://github.com/{repo}/releases/download/{effective_tag}/{filename}")
     };
+
+    let mut release_info: Option<serde_json::Value> = if use_latest_endpoint {
+        fetch_release_metadata(&repo, None)
+    } else {
+        fetch_release_metadata(&repo, Some(&effective_tag))
+    };
+
+    let mut release_asset: Option<(String, String)> = release_info
+        .as_ref()
+        .and_then(|release| find_release_asset(release, &target_triple));
+
+    if release_asset.is_none() && !use_latest_endpoint && tag_env.is_none() {
+        if let Some(ref release) = release_info {
+            if let Some(tag_name) = release.get("tag_name").and_then(|v| v.as_str()) {
+                println!(
+                    "cargo:warning=Release {tag_name} does not contain prebuilts for target {target_triple}; trying latest release instead"
+                );
+            } else {
+                println!(
+                    "cargo:warning=Specified V8 release does not contain prebuilts for target {target_triple}; trying latest release instead"
+                );
+            }
+        }
+        release_info = fetch_release_metadata(&repo, None);
+        release_asset = release_info
+            .as_ref()
+            .and_then(|release| find_release_asset(release, &target_triple));
+    }
+
+    let release_tag_from_api: Option<String> = release_info
+        .as_ref()
+        .and_then(|release| release.get("tag_name"))
+        .and_then(|value| value.as_str())
+        .map(|tag| tag.to_string());
+
+    let (release_download_url, release_asset_name) = match release_asset {
+        Some((url, name)) => (Some(url), Some(name)),
+        None => (None, None),
+    };
+
+    let mut tag_to_export: Option<String> = release_tag_from_api.clone();
+    if tag_to_export.is_none() && !use_latest_endpoint {
+        tag_to_export = Some(effective_tag.clone());
+    }
+    if let Some(ref tag) = tag_to_export {
+        println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={tag}");
+    }
 
     // Determine prebuilt location preference order:
     // 1) V8_PREBUILT_DIR (explicit override)
@@ -486,8 +609,36 @@ fn main() {
             extract_tarball(&local_artifact, &dl)
                 .expect("Failed to unpack local V8 artifact. Regenerate with scripts/build_v8.py.");
         } else {
-            println!("Downloading v8 prebuilt from: {url}");
-            download_and_extract(&url, &dl).expect("Failed to download or extract v8 prebuilt. Set V8_PREBUILT_REPO/TAG env vars or run scripts/build_v8.py to create prebuilds.");
+            if let Some(asset_url) = release_download_url.as_ref() {
+                match release_tag_from_api.as_deref() {
+                    Some(tag) => {
+                        if let Some(asset_name) = release_asset_name.as_deref() {
+                            println!(
+                                "Downloading v8 prebuilt asset {asset_name} from release {tag}"
+                            );
+                        } else {
+                            println!(
+                                "Downloading v8 prebuilt asset from release {tag}"
+                            );
+                        }
+                    }
+                    None => {
+                        if let Some(asset_name) = release_asset_name.as_deref() {
+                            println!(
+                                "Downloading v8 prebuilt asset {asset_name} from latest release"
+                            );
+                        } else {
+                            println!(
+                                "Downloading v8 prebuilt asset from latest release"
+                            );
+                        }
+                    }
+                }
+                download_and_extract(asset_url, &dl).expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
+            } else {
+                println!("Downloading v8 prebuilt from: {fallback_url}");
+                download_and_extract(&fallback_url, &dl).expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
+            }
         }
         dl
     };
@@ -512,12 +663,10 @@ fn main() {
     let lib_candidates: Vec<PathBuf> = if is_windows {
         vec![
             v8_dst.join("v8_monolith.lib"),
-            v8_dst.join("lib").join("v8_monolith.lib"),
         ]
     } else {
         vec![
             v8_dst.join("libv8_monolith.a"),
-            v8_dst.join("lib").join("libv8_monolith.a"),
         ]
     };
     let lib_path: PathBuf = lib_candidates

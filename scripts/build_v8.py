@@ -6,7 +6,6 @@ import sys
 import subprocess
 import shlex
 import shutil
-import tarfile
 import platform
 from pathlib import Path
 
@@ -190,14 +189,15 @@ def package(outdir, target_triple, env):
     # copy lib
     shutil.copy(lib_path, pkg_dir / lib_path.name)
     libcxx_lib = bundle_libcxx(outdir, env)
-    extra_libs = [lib_path]
+    extra_libs = []
     if libcxx_lib is not None:
         extra_libs.append(libcxx_lib)
 
-    lib_subdir = pkg_dir / "lib"
-    lib_subdir.mkdir(exist_ok=True)
-    for lib in extra_libs:
-        shutil.copy(lib, lib_subdir / lib.name)
+    if extra_libs:
+        lib_subdir = pkg_dir / "lib"
+        lib_subdir.mkdir(exist_ok=True)
+        for lib in extra_libs:
+            shutil.copy(lib, lib_subdir / lib.name)
     icu_src = outdir / "icudtl.dat"
     if icu_src.exists():
         shutil.copy(icu_src, pkg_dir / "icudtl.dat")
@@ -212,12 +212,8 @@ def package(outdir, target_triple, env):
         shutil.copytree(inc_src, pkg_dir / "include")
     else:
         raise RuntimeError("include/ not found in v8 checkout")
-    # tar.gz
-    tar_name = artifacts / f"v8-{target_triple}.tar.gz"
-    with tarfile.open(tar_name, "w:gz") as tar:
-        tar.add(pkg_dir, arcname=".")
-    print("Created:", tar_name)
-    return tar_name
+    print("Created package directory:", pkg_dir)
+    return pkg_dir
 
 def main():
     ensure_submodules()
@@ -228,7 +224,7 @@ def main():
     revision = os.environ.get("V8_GIT_REVISION")
     outdir, env = build_v8(gn_target, revision)
     pkg = package(outdir, target_triple, env)
-    print("Package:", pkg)
+    print("Package directory:", pkg)
 
 if __name__ == "__main__":
     main()
