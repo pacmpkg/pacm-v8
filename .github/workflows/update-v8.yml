@@ -205,13 +205,35 @@ jobs:
           V8_PREBUILT_DIR: ${{ format('artifacts/v8-{0}', matrix.target_triple) }}
         run: cargo build --workspace
 
+      - name: Gather packaged artifacts
+        id: packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=()
+          for ext in tar.gz zip; do
+            file="artifacts/v8-${{ matrix.target_triple }}.${ext}"
+            if [ -f "$file" ]; then
+              files+=("$file")
+            fi
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No packaged artifacts found" >&2
+            exit 1
+          fi
+          {
+            echo 'paths<<EOF'
+            for file in "${files[@]}"; do
+              echo "$file"
+            done
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ format('v8-{0}', matrix.target_triple) }}
-          path: |
-            ${{ format('artifacts/v8-{0}', matrix.target_triple) }}
-            ${{ format('artifacts/v8-{0}.tar.gz', matrix.target_triple) }}
+          path: ${{ steps.packaged.outputs.paths }}
 
   release:
     needs:
