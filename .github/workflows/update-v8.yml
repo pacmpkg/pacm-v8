@@ -15,6 +15,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
       commit: ${{ steps.compute.outputs.commit }}
+      crate_version: ${{ steps.compute.outputs.crate_version }}
       should_build: ${{ steps.filter.outputs.should_build }}
     steps:
       - name: Checkout repository
@@ -109,7 +110,7 @@ jobs:
 
       - name: Update crate version
         env:
-          CRATE_VERSION: ${{ needs.detect.outputs.version }}
+          CRATE_VERSION: ${{ needs.detect.outputs.crate_version }}
         shell: python
         run: |
           import os
