@@ -213,7 +213,30 @@ def package(outdir, target_triple, env):
     else:
         raise RuntimeError("include/ not found in v8 checkout")
     print("Created package directory:", pkg_dir)
+
+    # Produce both tar.gz and zip archives for CI release stages.
+    create_archives(pkg_dir)
+
     return pkg_dir
+
+
+def create_archives(pkg_dir: Path) -> None:
+    base_name = str(pkg_dir)
+    root_dir = pkg_dir.parent
+    base_dir = pkg_dir.name
+
+    archives = [
+        ("gztar", Path(f"{base_name}.tar.gz")),
+        ("zip", Path(f"{base_name}.zip")),
+    ]
+
+    for _fmt, archive_path in archives:
+        if archive_path.exists():
+            archive_path.unlink()
+
+    for fmt, _archive_path in archives:
+        created = shutil.make_archive(base_name, fmt, root_dir=root_dir, base_dir=base_dir)
+        print("Created archive:", created)
 
 def main():
     ensure_submodules()
