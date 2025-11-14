@@ -11,6 +11,16 @@ from pathlib import Path
 VERSION_TAG_RE = re.compile(r"^\d+(?:\.\d+){1,3}$")
 
 
+def to_crate_version(version: str) -> str:
+    parts = version.split(".")
+    if len(parts) <= 3:
+        return version
+
+    base = ".".join(parts[:3])
+    suffix = ".".join(parts[3:])
+    return f"{base}-patch.{suffix}"
+
+
 def git_show(repo: Path, ref: str, file_path: str) -> str:
     return subprocess.check_output(
         ["git", "-C", str(repo), "show", f"{ref}:{file_path}"],
@@ -94,10 +104,13 @@ def main() -> None:
 
     print(version)
 
+    crate_version = to_crate_version(version)
+
     if args.output is not None:
         with args.output.open("a", encoding="utf-8") as handle:
             handle.write(f"version={version}\n")
             handle.write(f"commit={commit}\n")
+            handle.write(f"crate_version={crate_version}\n")
 
 
 if __name__ == "__main__":
