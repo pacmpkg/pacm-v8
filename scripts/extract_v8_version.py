@@ -10,6 +10,12 @@ from pathlib import Path
 
 VERSION_TAG_RE = re.compile(r"^\d+(?:\.\d+){1,3}$")
 
+# Tags such as 14.4.75260116 correspond to Chromium build snapshots rather than
+# published V8 releases. Filter out any tag whose build component exceeds this
+# threshold so we only track official V8 release tags (which have small build
+# numbers and optional patch components).
+MAX_RELEASE_BUILD_COMPONENT = 1_000_000
+
 
 def to_crate_version(version: str) -> str:
     parts = version.split(".")
@@ -65,7 +71,16 @@ def determine_latest_tag(repo: Path, pattern: str | None) -> tuple[str, str]:
         tag = raw_tag.strip()
         if not tag:
             continue
-        if pattern is None and not VERSION_TAG_RE.fullmatch(tag):
+        if not VERSION_TAG_RE.fullmatch(tag):
+            continue
+        try:
+            parts = [int(part) for part in tag.split(".")]
+        except ValueError:
+            continue
+        if len(parts) < 3:
+            continue
+        build = parts[2]
+        if build >= MAX_RELEASE_BUILD_COMPONENT:
             continue
         commit = git_rev_parse(repo, tag)
         return tag, commit

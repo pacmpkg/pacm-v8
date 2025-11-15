@@ -295,6 +295,46 @@ fn find_librarian(manifest_dir: &Path) -> Option<PathBuf> {
     None
 }
 
+fn has_prebuilt_markers(path: &Path) -> bool {
+    path.join("include").exists()
+        || path.join("v8.h").exists()
+        || path.join("lib").join("v8_monolith.lib").exists()
+        || path.join("v8_monolith.lib").exists()
+        || path.join("lib").join("libv8_monolith.a").exists()
+        || path.join("libv8_monolith.a").exists()
+        || path.join("lib").join("libv8_monolith.so").exists()
+        || path.join("libv8_monolith.so").exists()
+        || path.join("lib").join("libv8_monolith.dylib").exists()
+        || path.join("libv8_monolith.dylib").exists()
+}
+
+fn resolve_prebuilt_root(base: &Path) -> PathBuf {
+    if has_prebuilt_markers(base) {
+        return base.to_path_buf();
+    }
+
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(base) {
+        for entry in entries.flatten() {
+            let path: PathBuf = entry.path();
+            if path.is_dir() {
+                if has_prebuilt_markers(&path) {
+                    return path;
+                }
+                subdirs.push(path);
+            }
+        }
+    }
+
+    if subdirs.len() == 1 {
+        if let Some(dir) = subdirs.pop() {
+            return resolve_prebuilt_root(&dir);
+        }
+    }
+
+    base.to_path_buf()
+}
+
 fn find_icudtl_dat(v8_root: &Path, manifest_dir: &Path) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = vec![
         v8_root.join("icudtl.dat"),
@@ -643,15 +683,17 @@ fn main() {
         dl
     };
 
+    let v8_root: PathBuf = resolve_prebuilt_root(&v8_dst);
+
     // Erwartete Layout nach dem Extrahieren:
     // v8-prebuilt/include/...
     // v8-prebuilt/lib/<platform-libname>
     // normalize possible locations/platforms:
-    let mut include_path: PathBuf = v8_dst.join("include");
+    let mut include_path: PathBuf = v8_root.join("include");
     if !include_path.exists() {
         // try if include is at root (tarball unpacked differently)
-        if v8_dst.join("v8.h").exists() {
-            include_path = v8_dst.clone();
+        if v8_root.join("v8.h").exists() {
+            include_path = v8_root.clone();
         }
     }
 
@@ -662,11 +704,22 @@ fn main() {
     let is_musl: bool = cargo_target.contains("musl");
     let lib_candidates: Vec<PathBuf> = if is_windows {
         vec![
-            v8_dst.join("v8_monolith.lib"),
+            v8_root.join("v8_monolith.lib"),
+            v8_root.join("lib").join("v8_monolith.lib"),
+        ]
+    } else if is_macos {
+        vec![
+            v8_root.join("libv8_monolith.a"),
+            v8_root.join("lib").join("libv8_monolith.a"),
+            v8_root.join("libv8_monolith.dylib"),
+            v8_root.join("lib").join("libv8_monolith.dylib"),
         ]
     } else {
         vec![
-            v8_dst.join("libv8_monolith.a"),
+            v8_root.join("libv8_monolith.a"),
+            v8_root.join("lib").join("libv8_monolith.a"),
+            v8_root.join("libv8_monolith.so"),
+            v8_root.join("lib").join("libv8_monolith.so"),
         ]
     };
     let lib_path: PathBuf = lib_candidates
@@ -675,11 +728,11 @@ fn main() {
         .unwrap_or_else(|| {
             panic!(
             "Could not find v8 monolithic library in prebuilt at {}. Expected lib in root or lib/.",
-            v8_dst.display()
+            v8_root.display()
         )
         });
 
-    if let Some(icu_src) = find_icudtl_dat(&v8_dst, &manifest_dir) {
+    if let Some(icu_src) = find_icudtl_dat(&v8_root, &manifest_dir) {
         let icu_dst: PathBuf = out_dir.join("icudtl.dat");
         if should_regenerate(&icu_dst, &[icu_src.clone()]) {
             fs::copy(&icu_src, &icu_dst).unwrap_or_else(|err: Error| {
@@ -702,7 +755,7 @@ fn main() {
         );
     }
 
-    let config_info: Option<(serde_json::Value, PathBuf)> = load_v8_build_config(&v8_dst, &manifest_dir);
+    let config_info: Option<(serde_json::Value, PathBuf)> = load_v8_build_config(&v8_root, &manifest_dir);
 
     let lib_filename: &str = lib_path
         .file_name()
@@ -786,7 +839,7 @@ fn main() {
     let mut link_search_dirs: Vec<PathBuf> = vec![lib_dir.to_path_buf()];
     let mut extra_libs: HashMap<String, &'static str> = HashMap::new();
 
-    let candidate_lib_dir: PathBuf = v8_dst.join("lib");
+    let candidate_lib_dir: PathBuf = v8_root.join("lib");
     if candidate_lib_dir.exists() {
         collect_libs_recursively(&candidate_lib_dir, &mut extra_libs, &mut link_search_dirs);
     }

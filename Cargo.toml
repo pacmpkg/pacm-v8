@@ -14,10 +14,11 @@ categories = ["api-bindings", "compilers", "wasm"]
 
 [dependencies]
 libc = "0.2"
+temporal_capi = { version = "0.1.2", features = ["compiled_data", "zoneinfo64"] }
 
 [build-dependencies]
-bytes = "1.10"
-cc = "1.2.45"
+bytes = "1.11"
+cc = "1.2.46"
 reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"] }
 tar = "0.4"
 flate2 = "1.0"
