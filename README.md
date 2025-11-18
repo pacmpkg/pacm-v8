@@ -32,7 +32,7 @@ Or edit your `Cargo.toml` manually:
 
 ```toml
 [dependencies]
-pacm-v8 = "14.4.78"
+pacm-v8 = "14.4.158"
 ```
 
 ### Quick Start
