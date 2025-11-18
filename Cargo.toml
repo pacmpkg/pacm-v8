@@ -1,6 +1,6 @@
 [package]
 name = "pacm-v8"
-version = "14.4.78"
+version = "14.4.158"
 edition = "2024"
 build = "build.rs"
 description = "Rust bindings for the V8 JavaScript engine for the pacm toolkit"
