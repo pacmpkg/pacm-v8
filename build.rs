@@ -1,12 +1,10 @@
-use bytes::Bytes;
 use flate2::read::GzDecoder;
-use reqwest::blocking::{RequestBuilder, Response};
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, File, Metadata};
 use std::io::{BufReader, Error, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, env, fs};
 
 use reqwest::blocking::Client;
@@ -36,115 +34,63 @@ fn extract_tarball(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Err
 }
 
 fn download_and_extract(url: &str, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let resp = reqwest::blocking::get(url)?;
-    if !resp.status().is_success() {
-        return Err(format!("Download failed: {}", resp.status()).into());
-    }
-    let bytes: Bytes = resp.bytes()?;
+    // Ensure destination parent exists
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp: PathBuf = dst.with_extension("download");
-    std::fs::write(&tmp, &bytes)?;
-    extract_tarball(&tmp, dst)?;
-    let _ = std::fs::remove_file(&tmp);
-    Ok(())
-}
 
-fn github_api_json(repo: &str, endpoint: &str) -> Option<serde_json::Value> {
-    let client: Client = Client::builder()
+    // Prepare HTTP client with long timeouts and proper UA
+    let builder = Client::builder()
         .user_agent("pacm-v8-build/1.0")
-        .build()
-        .ok()?;
+        .timeout(Duration::from_secs(600))
+        .connect_timeout(Duration::from_secs(60));
 
-    let url: String = format!("https://api.github.com/repos/{repo}/{endpoint}");
-    let mut request: RequestBuilder = client.get(url);
+    let client = builder.build()?;
 
-    if let Ok(token) = env::var("GITHUB_TOKEN") {
-        if !token.is_empty() {
-            request = request.bearer_auth(token);
+    // Download with a few retries, streaming to disk
+    let tmp: PathBuf = dst.with_extension("download");
+    let attempts: usize = 3;
+    let mut last_err: Option<String> = None;
+    for attempt in 1..=attempts {
+        let mut req = client.get(url).header("Accept", "application/octet-stream");
+        if let Ok(token) = env::var("GITHUB_TOKEN") {
+            if !token.is_empty() {
+                req = req.bearer_auth(token);
+            }
+        }
+
+        match req.send() {
+            Ok(mut resp) => {
+                if !resp.status().is_success() {
+                    last_err = Some(format!("HTTP status {}", resp.status()));
+                } else {
+                    let mut file = File::create(&tmp)?;
+                    std::io::copy(&mut resp, &mut file)?;
+                    // Try to extract and return
+                    extract_tarball(&tmp, dst)?;
+                    let _ = std::fs::remove_file(&tmp);
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                last_err = Some(err.to_string());
+            }
+        }
+
+        if attempt < attempts {
+            let backoff = 2_u64.pow(attempt as u32);
+            println!(
+                "cargo:warning=Download attempt {attempt} failed; retrying in {backoff}s"
+            );
+            std::thread::sleep(Duration::from_secs(backoff));
         }
     }
 
-    let response: Response = request.send().ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-
-    response.json().ok()
-}
-
-fn resolve_latest_release_tag(repo: &str) -> Option<String> {
-    github_api_json(repo, "releases/latest").and_then(|payload: serde_json::Value| {
-        payload
-            .get("tag_name")
-            .and_then(|name| name.as_str())
-            .map(|name: &str| name.to_string())
-    })
-}
-
-fn fetch_release_metadata(repo: &str, tag: Option<&str>) -> Option<serde_json::Value> {
-    match tag {
-        Some(tag_name) => github_api_json(repo, &format!("releases/tags/{tag_name}")),
-        None => github_api_json(repo, "releases/latest"),
-    }
-}
-
-fn find_release_asset(
-    release: &serde_json::Value,
-    target_triple: &str,
-) -> Option<(String, String)> {
-    let assets = release.get("assets")?.as_array()?;
-    let base: String = format!("v8-{target_triple}");
-    let candidates: [String; 7] = [
-        format!("{base}.tar.gz"),
-        format!("{base}.tgz"),
-        format!("{base}.tar.zst"),
-        format!("{base}.tar.xz"),
-        format!("{base}.zip"),
-        format!("{base}.tar"),
-        base.clone(),
-    ];
-
-    for candidate in &candidates {
-        if let Some(asset) = assets.iter().find(|asset| {
-            asset
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|name| name.eq_ignore_ascii_case(candidate))
-                .unwrap_or(false)
-        }) {
-            let url = asset
-                .get("browser_download_url")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())?;
-            let name = asset
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())?;
-            return Some((url, name));
-        }
-    }
-
-    if let Some(asset) = assets.iter().find(|asset| {
-        asset
-            .get("name")
-            .and_then(|v| v.as_str())
-            .map(|name| name.starts_with(&base))
-            .unwrap_or(false)
-    }) {
-        let url = asset
-            .get("browser_download_url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())?;
-        let name = asset
-            .get("name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())?;
-        return Some((url, name));
-    }
-
-    None
+    Err(format!(
+        "Download failed after {attempts} attempts: {}",
+        last_err.unwrap_or_else(|| "unknown error".into())
+    )
+    .into())
 }
 
 fn library_spec(path: &Path) -> Option<(String, &'static str)> {
@@ -542,146 +488,28 @@ fn main() {
         .or_else(|_| env::var("V8_TARGET_TRIPLE"))
         .unwrap_or_else(|_| cargo_target.clone());
 
-    // Repo + Tag konfigurierbar
+    // Always pin to the current crate version's prebuilt tag
     let repo: String = env::var("V8_PREBUILT_REPO").unwrap_or_else(|_| "pacmpkg/pacm-v8".to_string());
-    let default_tag: String = format!("v8-{crate_version}");
-    let tag_env: Option<String> = env::var("V8_PREBUILT_TAG").ok();
-    let mut effective_tag: String = tag_env.clone().unwrap_or_else(|| default_tag.clone());
-    let mut use_latest_endpoint: bool = false;
-
-    if effective_tag.eq_ignore_ascii_case("latest") {
-        if let Some(resolved) = resolve_latest_release_tag(&repo) {
-            println!("cargo:warning=Resolved V8 prebuilt release tag {resolved}");
-            effective_tag = resolved;
-        } else {
-            println!(
-                "cargo:warning=Could not resolve latest V8 release tag via GitHub API; falling back to releases/latest endpoint"
-            );
-            use_latest_endpoint = true;
-        }
-    } else if !effective_tag.starts_with("v8-") {
-        effective_tag = format!("v8-{effective_tag}");
-    }
+    let effective_tag: String = format!("v8-{crate_version}");
+    println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={effective_tag}");
 
     // Asset name convention
     let filename: String = format!("v8-{target_triple}.tar.gz");
-    let fallback_url: String = if use_latest_endpoint {
-        format!("https://github.com/{repo}/releases/latest/download/{filename}")
+    let download_url: String =
+        format!("https://github.com/{repo}/releases/download/{effective_tag}/{filename}");
+
+    // Always download (per crate version), isolate cache path by tag to avoid cross-version reuse
+    let v8_dst: PathBuf = out_dir.join(format!("v8-prebuilt-{}-{}", target_triple, effective_tag));
+    if v8_dst.exists() && v8_dst.join("include").exists() {
+        println!("Found existing v8 prebuilt at {}", v8_dst.display());
     } else {
-        format!("https://github.com/{repo}/releases/download/{effective_tag}/{filename}")
-    };
-
-    let mut release_info: Option<serde_json::Value> = if use_latest_endpoint {
-        fetch_release_metadata(&repo, None)
-    } else {
-        fetch_release_metadata(&repo, Some(&effective_tag))
-    };
-
-    let mut release_asset: Option<(String, String)> = release_info
-        .as_ref()
-        .and_then(|release| find_release_asset(release, &target_triple));
-
-    if release_asset.is_none() && !use_latest_endpoint && tag_env.is_none() {
-        if let Some(ref release) = release_info {
-            if let Some(tag_name) = release.get("tag_name").and_then(|v| v.as_str()) {
-                println!(
-                    "cargo:warning=Release {tag_name} does not contain prebuilts for target {target_triple}; trying latest release instead"
-                );
-            } else {
-                println!(
-                    "cargo:warning=Specified V8 release does not contain prebuilts for target {target_triple}; trying latest release instead"
-                );
-            }
-        }
-        release_info = fetch_release_metadata(&repo, None);
-        release_asset = release_info
-            .as_ref()
-            .and_then(|release| find_release_asset(release, &target_triple));
+        println!(
+            "Downloading v8 prebuilt from: {}",
+            download_url
+        );
+        download_and_extract(&download_url, &v8_dst)
+            .expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
     }
-
-    let release_tag_from_api: Option<String> = release_info
-        .as_ref()
-        .and_then(|release| release.get("tag_name"))
-        .and_then(|value| value.as_str())
-        .map(|tag| tag.to_string());
-
-    let (release_download_url, release_asset_name) = match release_asset {
-        Some((url, name)) => (Some(url), Some(name)),
-        None => (None, None),
-    };
-
-    let mut tag_to_export: Option<String> = release_tag_from_api.clone();
-    if tag_to_export.is_none() && !use_latest_endpoint {
-        tag_to_export = Some(effective_tag.clone());
-    }
-    if let Some(ref tag) = tag_to_export {
-        println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={tag}");
-    }
-
-    // Determine prebuilt location preference order:
-    // 1) V8_PREBUILT_DIR (explicit override)
-    // 2) local checkout prebuilt/<target_triple>
-    // 3) unpacked artifacts/v8-<target_triple>
-    // 4) download or unpack artifact into OUT_DIR/v8-prebuilt-<target_triple>
-    let local_prebuilt: PathBuf = manifest_dir.join("prebuilt").join(&target_triple);
-    let local_artifact_dir: PathBuf = manifest_dir.join("artifacts");
-    let unpacked_artifact: PathBuf = local_artifact_dir.join(format!("v8-{target_triple}"));
-    let local_artifact: PathBuf = local_artifact_dir.join(&filename);
-
-    let v8_dst: PathBuf = if let Ok(dir) = env::var("V8_PREBUILT_DIR") {
-        let p: PathBuf = PathBuf::from(dir);
-        println!("Using V8 prebuilts from V8_PREBUILT_DIR={}", p.display());
-        p
-    } else if local_prebuilt.exists() {
-        println!("Using local prebuilts at {}", local_prebuilt.display());
-        local_prebuilt
-    } else if unpacked_artifact.join("include").exists() || unpacked_artifact.join("v8.h").exists()
-    {
-        println!("Using unpacked artifact at {}", unpacked_artifact.display());
-        unpacked_artifact
-    } else {
-        let dl: PathBuf = out_dir.join(format!("v8-prebuilt-{target_triple}"));
-
-        if dl.exists() && dl.join("include").exists() {
-            println!("Found existing v8 prebuilt at {}", dl.display());
-        } else if local_artifact.exists() {
-            println!("Unpacking local artifact {}", local_artifact.display());
-            extract_tarball(&local_artifact, &dl)
-                .expect("Failed to unpack local V8 artifact. Regenerate with scripts/build_v8.py.");
-        } else {
-            if let Some(asset_url) = release_download_url.as_ref() {
-                match release_tag_from_api.as_deref() {
-                    Some(tag) => {
-                        if let Some(asset_name) = release_asset_name.as_deref() {
-                            println!(
-                                "Downloading v8 prebuilt asset {asset_name} from release {tag}"
-                            );
-                        } else {
-                            println!(
-                                "Downloading v8 prebuilt asset from release {tag}"
-                            );
-                        }
-                    }
-                    None => {
-                        if let Some(asset_name) = release_asset_name.as_deref() {
-                            println!(
-                                "Downloading v8 prebuilt asset {asset_name} from latest release"
-                            );
-                        } else {
-                            println!(
-                                "Downloading v8 prebuilt asset from latest release"
-                            );
-                        }
-                    }
-                }
-                download_and_extract(asset_url, &dl).expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
-            } else {
-                println!("Downloading v8 prebuilt from: {fallback_url}");
-                download_and_extract(&fallback_url, &dl).expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
-            }
-        }
-        dl
-    };
 
     let v8_root: PathBuf = resolve_prebuilt_root(&v8_dst);
 
@@ -702,24 +530,25 @@ fn main() {
     let is_macos: bool = cargo_target.contains("apple-darwin");
     let is_linux: bool = cargo_target.contains("linux");
     let is_musl: bool = cargo_target.contains("musl");
+    // Prefer new unified lib/ directory layout (monolith inside lib/). Retain backward-compatible root fallbacks.
     let lib_candidates: Vec<PathBuf> = if is_windows {
         vec![
-            v8_root.join("v8_monolith.lib"),
             v8_root.join("lib").join("v8_monolith.lib"),
+            v8_root.join("v8_monolith.lib"),
         ]
     } else if is_macos {
         vec![
-            v8_root.join("libv8_monolith.a"),
             v8_root.join("lib").join("libv8_monolith.a"),
-            v8_root.join("libv8_monolith.dylib"),
+            v8_root.join("libv8_monolith.a"),
             v8_root.join("lib").join("libv8_monolith.dylib"),
+            v8_root.join("libv8_monolith.dylib"),
         ]
     } else {
         vec![
-            v8_root.join("libv8_monolith.a"),
             v8_root.join("lib").join("libv8_monolith.a"),
-            v8_root.join("libv8_monolith.so"),
+            v8_root.join("libv8_monolith.a"),
             v8_root.join("lib").join("libv8_monolith.so"),
+            v8_root.join("libv8_monolith.so"),
         ]
     };
     let lib_path: PathBuf = lib_candidates
@@ -867,6 +696,46 @@ fn main() {
                         &mut extra_libs,
                         &mut link_search_dirs,
                     );
+                }
+
+                let libplatform_dir: PathBuf = obj_dir.join("libplatform");
+                if libplatform_dir.exists() {
+                    // Prefer existing libs if present
+                    let mut had_lib = false;
+                    if let Ok(entries) = fs::read_dir(&libplatform_dir) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if p.extension().and_then(|e| e.to_str()).map(|s| s.eq_ignore_ascii_case("lib") || s.eq_ignore_ascii_case("a")).unwrap_or(false) {
+                                had_lib = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if had_lib {
+                        collect_libs_recursively(
+                            &libplatform_dir,
+                            &mut extra_libs,
+                            &mut link_search_dirs,
+                        );
+                    } else if let Some(lib_path) = create_static_library_from_objects(
+                        &libplatform_dir,
+                        &out_dir,
+                        &manifest_dir,
+                        &format!(
+                            "v8_libplatform_{}",
+                            sanitize_ident(build.file_name().to_string_lossy().as_ref())
+                        ),
+                    ) {
+                        if let Some(parent) = lib_path.parent() {
+                            if !link_search_dirs.iter().any(|p: &PathBuf| p == parent) {
+                                link_search_dirs.push(parent.to_path_buf());
+                            }
+                        }
+                        if let Some(stem) = lib_path.file_stem().and_then(|s: &std::ffi::OsStr| s.to_str()) {
+                            extra_libs.entry(stem.to_string()).or_insert("static");
+                        }
+                    }
                 }
 
                 if is_windows {

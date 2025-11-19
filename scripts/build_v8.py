@@ -162,7 +162,8 @@ def build_v8(target="x64.release", revision: str | None = None):
     run(v8gen_cmd, cwd=V8_DIR, env=env)
     # ninja build
     outdir = V8_DIR / f"out.gn/{target}"
-    run(["ninja", "-C", str(outdir), "v8_monolith"], cwd=V8_DIR, env=env)
+    # Build monolith plus platform/base support libraries (names consistent across platforms)
+    run(["ninja", "-C", str(outdir), "v8_monolith", "v8_libplatform", "v8_libbase"], cwd=V8_DIR, env=env)
     return outdir, env
 
 def package(outdir, target_triple, env):
@@ -186,16 +187,46 @@ def package(outdir, target_triple, env):
     if pkg_dir.exists():
         shutil.rmtree(pkg_dir)
     pkg_dir.mkdir(parents=True)
-    # copy lib
-    shutil.copy(lib_path, pkg_dir / lib_path.name)
+    # Ensure unified lib/ directory containing ALL libraries (including monolith)
+    lib_subdir = pkg_dir / "lib"
+    lib_subdir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(lib_path, lib_subdir / lib_path.name)
     libcxx_lib = bundle_libcxx(outdir, env)
     extra_libs = []
     if libcxx_lib is not None:
         extra_libs.append(libcxx_lib)
 
+    # Collect platform/base libraries across OSes. Possible filenames differ by platform.
+    platform_base_variants = [
+        # Windows static
+        "v8_libplatform.lib", "v8_libbase.lib",
+        # Unix-like static
+        "libv8_libplatform.a", "libv8_libbase.a",
+        # Linux shared
+        "libv8_libplatform.so", "libv8_libbase.so",
+        # macOS shared
+        "libv8_libplatform.dylib", "libv8_libbase.dylib",
+    ]
+
+    # Common subdirectories where GN places libraries
+    candidate_subdirs = [
+        outdir / "obj" / "libplatform",
+        outdir / "obj" / "base",
+        outdir / "obj",
+        outdir,
+    ]
+
+    seen = set()
+    for subdir in candidate_subdirs:
+        if not subdir.exists():
+            continue
+        for variant in platform_base_variants:
+            path = subdir / variant
+            if path.exists() and path not in seen:
+                extra_libs.append(path)
+                seen.add(path)
+
     if extra_libs:
-        lib_subdir = pkg_dir / "lib"
-        lib_subdir.mkdir(exist_ok=True)
         for lib in extra_libs:
             shutil.copy(lib, lib_subdir / lib.name)
     icu_src = outdir / "icudtl.dat"

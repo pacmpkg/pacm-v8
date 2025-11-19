@@ -7,6 +7,9 @@ mod value;
 pub use crate::error::{Result, V8Error};
 pub use crate::value::JsValue;
 
+// Ensure temporal_capi symbols are linked even though they're only used by V8's C++ code
+extern crate temporal_capi;
+
 use std::env;
 use std::ffi::CString;
 use std::os::raw::c_char;
