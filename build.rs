@@ -494,12 +494,12 @@ fn main() {
     println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={effective_tag}");
 
     // Check if a local prebuilt directory is provided (for CI builds before release)
+    println!("cargo:rerun-if-env-changed=V8_PREBUILT_DIR");
     let v8_root: PathBuf = if let Ok(prebuilt_dir) = env::var("V8_PREBUILT_DIR") {
-        println!("cargo:rerun-if-env-changed=V8_PREBUILT_DIR");
         let local_path = PathBuf::from(&prebuilt_dir);
-        if !local_path.exists() {
+        if !local_path.is_dir() {
             panic!(
-                "V8_PREBUILT_DIR is set to '{}' but the directory does not exist",
+                "V8_PREBUILT_DIR is set to '{}' but the path does not exist or is not a directory",
                 prebuilt_dir
             );
         }
