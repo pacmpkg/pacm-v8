@@ -493,25 +493,38 @@ fn main() {
     let effective_tag: String = format!("v8-{crate_version}");
     println!("cargo:rustc-env=PACM_V8_PREBUILT_TAG={effective_tag}");
 
-    // Asset name convention
-    let filename: String = format!("v8-{target_triple}.tar.gz");
-    let download_url: String =
-        format!("https://github.com/{repo}/releases/download/{effective_tag}/{filename}");
-
-    // Always download (per crate version), isolate cache path by tag to avoid cross-version reuse
-    let v8_dst: PathBuf = out_dir.join(format!("v8-prebuilt-{}-{}", target_triple, effective_tag));
-    if v8_dst.exists() && v8_dst.join("include").exists() {
-        println!("Found existing v8 prebuilt at {}", v8_dst.display());
+    // Check if a local prebuilt directory is provided (for CI builds before release)
+    let v8_root: PathBuf = if let Ok(prebuilt_dir) = env::var("V8_PREBUILT_DIR") {
+        println!("cargo:rerun-if-env-changed=V8_PREBUILT_DIR");
+        let local_path = PathBuf::from(&prebuilt_dir);
+        if !local_path.exists() {
+            panic!(
+                "V8_PREBUILT_DIR is set to '{}' but the directory does not exist",
+                prebuilt_dir
+            );
+        }
+        println!("Using local v8 prebuilt from V8_PREBUILT_DIR: {}", local_path.display());
+        resolve_prebuilt_root(&local_path)
     } else {
-        println!(
-            "Downloading v8 prebuilt from: {}",
-            download_url
-        );
-        download_and_extract(&download_url, &v8_dst)
-            .expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
-    }
+        // Asset name convention
+        let filename: String = format!("v8-{target_triple}.tar.gz");
+        let download_url: String =
+            format!("https://github.com/{repo}/releases/download/{effective_tag}/{filename}");
 
-    let v8_root: PathBuf = resolve_prebuilt_root(&v8_dst);
+        // Always download (per crate version), isolate cache path by tag to avoid cross-version reuse
+        let v8_dst: PathBuf = out_dir.join(format!("v8-prebuilt-{}-{}", target_triple, effective_tag));
+        if v8_dst.exists() && v8_dst.join("include").exists() {
+            println!("Found existing v8 prebuilt at {}", v8_dst.display());
+        } else {
+            println!(
+                "Downloading v8 prebuilt from: {}",
+                download_url
+            );
+            download_and_extract(&download_url, &v8_dst)
+                .expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
+        }
+        resolve_prebuilt_root(&v8_dst)
+    };
 
     // Erwartete Layout nach dem Extrahieren:
     // v8-prebuilt/include/...
