@@ -18,7 +18,7 @@ temporal_capi = { version = "0.1.2", features = ["compiled_data", "zoneinfo64"] 
 
 [build-dependencies]
 bytes = "1.11"
-cc = "1.2.46"
+cc = "1.1.34"
 reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"] }
 tar = "0.4"
 flate2 = "1.0"

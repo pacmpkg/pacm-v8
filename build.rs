@@ -665,6 +665,8 @@ fn main() {
     // Compile shim.cc and link against prebuilt V8
     let mut build: cc::Build = cc::Build::new();
     build.cpp(true).include("src/cpp").include(&include_path);
+    // Explicitly set the output directory to avoid cc crate build issues
+    build.out_dir(&out_dir);
 
     for source in [
         "src/cpp/runtime.cc",
