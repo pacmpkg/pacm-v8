@@ -5,7 +5,7 @@ High-level Rust bindings for the V8 JavaScript engine tailored for the pacm tool
 ## Features
 
 - Safe and minimal Rust API on top of the V8 C++ embedding interface
-- Prebuilt Windows V8 artifacts ready to use out of the box
+- Prebuilt V8 artifacts for major platforms (Linux, macOS, Windows)
 - Utilities for executing scripts, evaluating expressions, and binding host functions
 - Support for injecting numbers, strings, and Rust callbacks into a V8 context
 - Example crate demonstrating integration in a project
@@ -78,6 +78,21 @@ cargo run
 - To refresh the bundled V8 binaries, execute `python scripts/build_v8.py` and follow the prompts.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines, local development tips, and release steps.
+
+### Building Without Prebuilt Binaries
+
+The crate relies on prebuilt V8 binaries downloaded from GitHub releases. If you're developing against a version that hasn't been released yet, or if you want to use a custom V8 build, set the `V8_PREBUILT_DIR` environment variable:
+
+```sh
+# Point to your local V8 build directory
+export V8_PREBUILT_DIR=/path/to/your/v8-prebuilt
+cargo build
+```
+
+The directory should contain:
+- `include/` - V8 header files
+- `lib/` or root directory - V8 library files (e.g., `libv8_monolith.a`)
+- `icudtl.dat` - ICU data file (optional)
 
 ## Documentation
 
