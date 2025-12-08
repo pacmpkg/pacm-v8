@@ -37,46 +37,78 @@ jobs:
           script: |
             const tagName = process.env.TAG_NAME;
             
-            // Get release by tag
-            let release;
-            try {
-              const response = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tagName,
-              });
-              release = response.data;
-            } catch (error) {
-              core.setFailed(`Failed to get release ${tagName}: ${error.message}`);
-              return;
+            // Wait and retry logic to handle asset upload timing
+            const maxRetries = 10;
+            const retryDelay = 30000; // 30 seconds
+            
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                // Get release by tag
+                const response = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: tagName,
+                });
+                const release = response.data;
+                
+                // Check if release has any assets
+                if (!release.assets || release.assets.length === 0) {
+                  if (attempt < maxRetries) {
+                    core.info(
+                      `Release ${tagName} has no assets yet (attempt ${attempt}/${maxRetries}). ` +
+                      `Waiting ${retryDelay/1000}s for assets to be uploaded...`
+                    );
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    continue;
+                  } else {
+                    core.setFailed(
+                      `Release ${tagName} exists but has no assets after ${maxRetries} attempts. ` +
+                      `V8 prebuilt artifacts must be uploaded before publishing the crate.`
+                    );
+                    return;
+                  }
+                }
+                
+                // Check for expected V8 prebuilt archives
+                const assetNames = release.assets.map(a => a.name);
+                const expectedPatterns = ['v8-', '.tar.gz'];
+                const hasV8Assets = assetNames.some(name => 
+                  expectedPatterns.every(pattern => name.includes(pattern))
+                );
+                
+                if (!hasV8Assets) {
+                  if (attempt < maxRetries) {
+                    core.info(
+                      `Release ${tagName} assets may not include V8 prebuilt binaries yet (attempt ${attempt}/${maxRetries}). ` +
+                      `Found assets: ${assetNames.join(', ')}. Waiting ${retryDelay/1000}s...`
+                    );
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    continue;
+                  } else {
+                    core.warning(
+                      `Release ${tagName} may not have all V8 prebuilt binaries after ${maxRetries} attempts. ` +
+                      `Found assets: ${assetNames.join(', ')}`
+                    );
+                  }
+                }
+                
+                core.info(`Found V8 prebuilt assets: ${assetNames.filter(n => n.includes('v8-')).join(', ')}`);
+                core.setOutput('asset_count', release.assets.length);
+                return;
+                
+              } catch (error) {
+                if (error.status === 404 && attempt < maxRetries) {
+                  core.info(
+                    `Release ${tagName} not found yet (attempt ${attempt}/${maxRetries}). ` +
+                    `Waiting ${retryDelay/1000}s...`
+                  );
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  continue;
+                }
+                core.setFailed(`Failed to verify release ${tagName}: ${error.message}`);
+                return;
+              }
             }
-            
-            // Check if release has any assets
-            if (!release.assets || release.assets.length === 0) {
-              core.setFailed(
-                `Release ${tagName} exists but has no assets. ` +
-                `V8 prebuilt artifacts must be uploaded before publishing the crate.`
-              );
-              return;
-            }
-            
-            // Check for expected V8 prebuilt archives
-            const assetNames = release.assets.map(a => a.name);
-            const expectedPatterns = ['v8-', '.tar.gz'];
-            const hasV8Assets = assetNames.some(name => 
-              expectedPatterns.every(pattern => name.includes(pattern))
-            );
-            
-            if (!hasV8Assets) {
-              core.warning(
-                `Release ${tagName} assets may not include V8 prebuilt binaries. ` +
-                `Found assets: ${assetNames.join(', ')}`
-              );
-            } else {
-              core.info(`Found V8 prebuilt assets: ${assetNames.filter(n => n.includes('v8-')).join(', ')}`);
-            }
-            
-            core.setOutput('asset_count', release.assets.length);
 
       - name: Update crate version references
         run: |
