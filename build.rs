@@ -62,7 +62,8 @@ fn download_and_extract(url: &str, dst: &Path) -> Result<(), Box<dyn std::error:
         match req.send() {
             Ok(mut resp) => {
                 if !resp.status().is_success() {
-                    last_err = Some(format!("HTTP status {}", resp.status()));
+                    let status_code = resp.status();
+                    last_err = Some(format!("HTTP status {} ({})", status_code.as_u16(), status_code.canonical_reason().unwrap_or("Unknown")));
                 } else {
                     let mut file = File::create(&tmp)?;
                     std::io::copy(&mut resp, &mut file)?;
@@ -520,8 +521,50 @@ fn main() {
                 "Downloading v8 prebuilt from: {}",
                 download_url
             );
-            download_and_extract(&download_url, &v8_dst)
-                .expect("Failed to download or extract v8 prebuilt. Please check if your system and architecture are supported.");
+            if let Err(err) = download_and_extract(&download_url, &v8_dst) {
+                let err_msg = err.to_string();
+                if err_msg.contains("404") || err_msg.contains("Not Found") {
+                    panic!(
+                        "\n\nFailed to download V8 prebuilt binaries.\n\
+                        \n\
+                        The required release '{}' does not exist.\n\
+                        \n\
+                        This typically happens because:\n\
+                        1. The V8 prebuilts for version {} have not been released yet\n\
+                        2. Your platform ({}) may not be supported\n\
+                        \n\
+                        Solutions:\n\
+                        - Wait for the V8 prebuilt release to be published at:\n\
+                          https://github.com/{}/releases/tag/{}\n\
+                        - Use a released version of pacm-v8 from crates.io\n\
+                        - For CI/development, set V8_PREBUILT_DIR to point to a local V8 build\n\
+                        \n\
+                        For more information, visit: https://github.com/{}\n",
+                        effective_tag,
+                        crate_version,
+                        target_triple,
+                        repo,
+                        effective_tag,
+                        repo
+                    );
+                } else {
+                    panic!(
+                        "\n\nFailed to download V8 prebuilt binaries: {}\n\
+                        \n\
+                        Download URL: {}\n\
+                        \n\
+                        Solutions:\n\
+                        - Check your internet connection\n\
+                        - Verify your system and architecture are supported\n\
+                        - For CI/development, set V8_PREBUILT_DIR to point to a local V8 build\n\
+                        \n\
+                        For more information, visit: https://github.com/{}\n",
+                        err_msg,
+                        download_url,
+                        repo
+                    );
+                }
+            }
         }
         resolve_prebuilt_root(&v8_dst)
     };
